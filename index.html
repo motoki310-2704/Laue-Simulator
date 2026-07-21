@@ -10,7 +10,7 @@
       }
     }
   </script>
-<script type="module" src="./xray_laue_detector_map.js?20260721i"></script>
+<script type="module" src="./xray_laue_detector_map.js?20260721j"></script>
 <meta charset="UTF-8">
 </head>
 <body>
@@ -209,13 +209,14 @@
             <div id="view_projection" style="display:none">
                 Display size: <input type="range" value="100" min="25" max="200" step="5" id="proj_display_scale"><span id="proj_display_scale_disp">100%</span> <span class="rot_note">(on-screen size only; does not affect the calculation or the downloaded PNG)</span><br />
                 Spot size: <input type="range" value="4" min="1" max="15" step="1" id="proj_spot_radius"><span id="proj_spot_radius_disp">4 px</span><br />
+                &theta; range: <input type="range" value="90" min="5" max="90" step="1" id="proj_theta_max"><span id="proj_theta_max_disp">90&deg;</span> <span class="rot_note">(the outer solid circle = this angle from the beam axis)</span><br />
                 <canvas id="CanvasProjection" class="box"></canvas><br />
                 <span class="info_line" id="pole_info">Hover over a spot to inspect it.</span><br />
                 <span class="info_line" id="target_pole_info">Target reflection: not set.</span><br />
                 <input type="checkbox" id="proj_show_indices" class="radio_bt_visible"><label for="proj_show_indices">Show indices for all spots</label><br />
                 Image scale: <input type="range" value="100" min="10" max="300" step="1" id="proj_img_scale"><span id="proj_img_scale_disp">100%</span>,
                 Image offset (<input size="5" id="proj_img_ofstx" value="0">,<input size="5" id="proj_img_ofsty" value="0">) pixels.<br />
-                <span class="rot_note">The diffraction pattern with the flat-detector distortion removed: each spot is placed by the direction of its scattered beam (stereographic mapping, radius = tan(&theta;/2), &theta; = angle from the backward direction; dashed circles: &theta; = 30&deg;, 60&deg;, solid: 90&deg;). Spots correspond one-to-one with the diffraction view.<br />
+                <span class="rot_note">The diffraction pattern with the flat-detector distortion removed: each spot is placed by the direction of its scattered beam (stereographic mapping, radius &prop; tan(&theta;/2), &theta; = angle from the backward direction; dashed circles: &frac13; and &frac23; of the &theta; range, solid: the full &theta; range). Spots correspond one-to-one with the diffraction view.<br />
                 A loaded observed image is drawn as-is (no transformation), assuming it was saved in projection coordinates by the measurement software. It is fitted into the canvas by default; use the image scale and offset above to align it with the simulation.</span><br />
                 <a download="Projection.png" href="#" id="Projection_download">Download the stereographic projection as a png file.</a><br />
             </div>

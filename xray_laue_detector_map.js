@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m9";
+const version = "1.3+m10";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -246,6 +246,11 @@ window.addEventListener('load', () => {
 
     document.getElementById('proj_spot_radius').addEventListener('input', (evt) => {
         document.getElementById('proj_spot_radius_disp').innerHTML = document.getElementById('proj_spot_radius').value+" px";
+        draw_Projection();
+    });
+
+    document.getElementById('proj_theta_max').addEventListener('input', (evt) => {
+        document.getElementById('proj_theta_max_disp').innerHTML = document.getElementById('proj_theta_max').value+"\u00B0";
         draw_Projection();
     });
 
@@ -777,6 +782,12 @@ function draw_Projection(){
     if(!(projSpotRadius>0)){ projSpotRadius=4; }
     poleRadius_tgt = projSpotRadius+3;
 
+    // angular range of the view: the outer solid circle corresponds to theta_max
+    let theta_max = readNum('proj_theta_max');
+    if(!(theta_max>=1 && theta_max<=90)){ theta_max = 90; }
+    const tanHalfMax = Math.tan(theta_max/2.0/180.0*Math.PI);
+    const Rscale = Req/tanHalfMax;   // r = Rscale * tan(theta/2); r(theta_max) = Req
+
     apply_ColorSet();
 
     ctx.clearRect(0,0,projSize,projSize);
@@ -786,11 +797,13 @@ function draw_Projection(){
     // observed Laue image (drawn as-is; assumed to be in projection coordinates)
     draw_ProjectionImageOverlay(ctx, cx, cy, Req);
 
-    // guide circles: theta = 30, 60 (dashed) and 90 deg (solid)
+    // guide circles: theta_max/3 and 2*theta_max/3 (dashed), theta_max (solid)
+    const fmtAngle = (a)=>(Math.abs(a-Math.round(a))<0.05 ? String(Math.round(a)) : a.toFixed(1));
     ctx.strokeStyle = gridcolor;
     ctx.lineWidth = 1;
-    for(const th of [30,60]){
-        const r = Req*Math.tan(th/2.0/180.0*Math.PI);
+    const guideAngles = [theta_max/3.0, theta_max*2.0/3.0];
+    for(const th of guideAngles){
+        const r = Rscale*Math.tan(th/2.0/180.0*Math.PI);
         ctx.setLineDash([4,4]);
         ctx.beginPath();
         ctx.arc(cx,cy,r,0,2*Math.PI);
@@ -812,9 +825,9 @@ function draw_Projection(){
     // theta labels on the guides
     ctx.fillStyle = gridcolor;
     ctx.font = "10px sans-serif";
-    for(const th of [30,60,90]){
-        const r = Req*Math.tan(th/2.0/180.0*Math.PI);
-        ctx.fillText(String(th)+"\u00B0", cx+r*0.7071+2, cy-r*0.7071-2);
+    for(const th of [guideAngles[0], guideAngles[1], theta_max]){
+        const r = Rscale*Math.tan(th/2.0/180.0*Math.PI);
+        ctx.fillText(fmtAngle(th)+"\u00B0", cx+r*0.7071+2, cy-r*0.7071-2);
     }
 
     if(as_len==undefined){
@@ -838,10 +851,13 @@ function draw_Projection(){
         const kf = [ref.Ghkl[0]+ki, ref.Ghkl[1], ref.Ghkl[2]];   // kf[0] < 0 (backscattering)
         const klen = Math.sqrt(kf[0]**2.0+kf[1]**2.0+kf[2]**2.0);
         const m = [kf[0]/klen, kf[1]/klen, kf[2]/klen];
+        const theta = Math.acos(Math.min(1.0,Math.max(-1.0,-m[0])))*180.0/Math.PI;  // scattering direction angle from the backward axis
+        if(theta > theta_max){
+            return null;    // outside the displayed angular range
+        }
         const py = m[1]/(1.0-m[0]);
         const pz = m[2]/(1.0-m[0]);
-        const theta = Math.acos(Math.min(1.0,Math.max(-1.0,-m[0])))*180.0/Math.PI;  // scattering direction angle from the backward axis
-        return {x: cx + py*Req, y: cy - pz*Req, theta: theta};
+        return {x: cx + py*Rscale, y: cy - pz*Rscale, theta: theta};
     };
 
     projPoles = [];
@@ -900,7 +916,7 @@ function draw_Projection(){
                          +"(pole tilt \u03C7 = \u03B8/2 = "+(p.theta/2.0).toFixed(2)+"\u00B0).";
             }
             else{
-                tgtInfo = "Target reflection ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): outside the detector area.";
+                tgtInfo = "Target reflection ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): outside the detector area or the displayed \u03B8 range.";
             }
         }
         else{
