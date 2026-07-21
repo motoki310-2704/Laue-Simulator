@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m6";
+const version = "1.3+m7";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -105,9 +105,8 @@ let currentView = 'diffraction';            // 'diffraction' | 'projection'
 //---- projection settings (new) -----------------------------------------
 const projSize = 480;                       // canvas size (px), square
 const projMargin = 0.90;                    // equator radius = projSize/2 * projMargin
-const poleRadius = 3;
+const projSpotRadius = 4;                   // radius of circles showing reflections in the projection view
 const poleRadius_tgt = 7;
-const lowIndexLabelMax = 3;                 // label poles with |h|,|k|,|l| <= this (when "low-index only" is checked)
 
 //---- hover data (new) ---------------------------------------------------
 let detSpots = [];   // [{x,y,H,K,L,lambda}] in canvas pixels (physical indices)
@@ -219,7 +218,7 @@ window.addEventListener('load', () => {
         draw_DetMap();
     });
 
-    document.getElementById('proj_label_lowindex').addEventListener('change', (evt) => {
+    document.getElementById('proj_show_indices').addEventListener('change', (evt) => {
         draw_Projection();
     });
 
@@ -257,7 +256,7 @@ window.addEventListener('load', () => {
         hover_Projection(evt);
     });
     projCanvas.addEventListener('mouseleave', (evt) => {
-        document.getElementById('pole_info').innerHTML = "Hover over a pole to inspect it.";
+        document.getElementById('pole_info').innerHTML = "Hover over a spot to inspect it.";
     });
 
 });
@@ -729,6 +728,13 @@ function draw_ProjectionImageOverlay(ctx, cx, cy, Req){
 }
 
 function draw_Projection(){
+    // "Projection" view = the diffraction pattern with the flat-detector
+    // distortion removed. Each Bragg spot appearing on the detector is placed
+    // by the DIRECTION of its scattered beam kf (stereographic mapping:
+    // radius = tan(theta/2), theta = angle of kf from the backward direction),
+    // instead of by its position on the flat detector (radius = Lsd*tan(theta)).
+    // Spots therefore correspond one-to-one with the diffraction view, with
+    // the same azimuth (right = +y, up = +z); only the radial scale changes.
 
     const canvas = document.getElementById('CanvasProjection');
     canvas.width = projSize;
@@ -737,7 +743,7 @@ function draw_Projection(){
 
     const cx = projSize/2.0;
     const cy = projSize/2.0;
-    const Req = projSize/2.0*projMargin;   // equator ( chi = 90 deg. )
+    const Req = projSize/2.0*projMargin;   // theta = 90 deg. (backscattering limit)
 
     apply_ColorSet();
 
@@ -748,11 +754,11 @@ function draw_Projection(){
     // observed Laue image (drawn as-is; assumed to be in projection coordinates)
     draw_ProjectionImageOverlay(ctx, cx, cy, Req);
 
-    // guide circles: chi = 30, 60 (dashed) and 90 deg (equator, solid)
+    // guide circles: theta = 30, 60 (dashed) and 90 deg (solid)
     ctx.strokeStyle = gridcolor;
     ctx.lineWidth = 1;
-    for(const chi of [30,60]){
-        const r = Req*Math.tan(chi/2.0/180.0*Math.PI);
+    for(const th of [30,60]){
+        const r = Req*Math.tan(th/2.0/180.0*Math.PI);
         ctx.setLineDash([4,4]);
         ctx.beginPath();
         ctx.arc(cx,cy,r,0,2*Math.PI);
@@ -771,12 +777,12 @@ function draw_Projection(){
     ctx.lineTo(cx,cy+Req);
     ctx.stroke();
 
-    // chi labels on the guides
+    // theta labels on the guides
     ctx.fillStyle = gridcolor;
     ctx.font = "10px sans-serif";
-    for(const chi of [30,60,90]){
-        const r = Req*Math.tan(chi/2.0/180.0*Math.PI);
-        ctx.fillText(String(chi)+"\u00B0", cx+r*0.7071+2, cy-r*0.7071-2);
+    for(const th of [30,60,90]){
+        const r = Req*Math.tan(th/2.0/180.0*Math.PI);
+        ctx.fillText(String(th)+"\u00B0", cx+r*0.7071+2, cy-r*0.7071-2);
     }
 
     if(as_len==undefined){
@@ -787,10 +793,31 @@ function draw_Projection(){
     Kmax = Math.floor(Qmax/bs_len*2.0);
     Lmax = Math.floor(Qmax/cs_len*2.0);
 
-    const labelLowOnly = document.getElementById('proj_label_lowindex').checked;
+    const showHKL = document.getElementById('proj_show_indices').checked;
 
-    // collect distinct pole directions
-    const poleMap = new Map();
+    // Map a computed reflection to projection-canvas coordinates.
+    // Returns null if the spot does not hit the detector (so this view shows
+    // exactly the same set of reflections as the diffraction view).
+    const spotToProj = (ref)=>{
+        if(!(ref.PosX>=0 && ref.PosX<scaleX && ref.PosY>=0 && ref.PosY<=scaleY)){
+            return null;
+        }
+        const ki = 2.0*Math.PI/ref.lambda;
+        const kf = [ref.Ghkl[0]+ki, ref.Ghkl[1], ref.Ghkl[2]];   // kf[0] < 0 (backscattering)
+        const klen = Math.sqrt(kf[0]**2.0+kf[1]**2.0+kf[2]**2.0);
+        const m = [kf[0]/klen, kf[1]/klen, kf[2]/klen];
+        const py = m[1]/(1.0-m[0]);
+        const pz = m[2]/(1.0-m[0]);
+        const theta = Math.acos(Math.min(1.0,Math.max(-1.0,-m[0])))*180.0/Math.PI;  // scattering direction angle from the backward axis
+        return {x: cx + py*Req, y: cy - pz*Req, theta: theta};
+    };
+
+    projPoles = [];
+
+    ctx.strokeStyle = fundamental_color;
+    ctx.fillStyle = fundamental_color;
+    ctx.lineWidth = ref_linewidth;
+
     for (let H=-Hmax;H<=Hmax;H+=1){
         for (let K=-Kmax;K<=Kmax;K+=1){
             for (let L=-Lmax;L<=Lmax;L+=1){
@@ -801,76 +828,51 @@ function draw_Projection(){
                 if(ref==null){
                     continue;
                 }
-                const red = reduceHKL(H,K,L);
-                const key = String(red[0])+","+String(red[1])+","+String(red[2]);
-                if(poleMap.has(key)){
+                const p = spotToProj(ref);
+                if(p==null){
                     continue;
                 }
-                const G = ref.Ghkl;
-                const Glen = Math.sqrt(G[0]**2.0+G[1]**2.0+G[2]**2.0);
-                const n = [G[0]/Glen, G[1]/Glen, G[2]/Glen];   // n[0]<0 : hemisphere facing the detector
-                const py = n[1]/(1.0-n[0]);
-                const pz = n[2]/(1.0-n[0]);
-                const sx = cx + py*Req;
-                const sy = cy - pz*Req;
-                const chi = Math.acos(Math.min(1.0,Math.max(-1.0,-n[0])))*180.0/Math.PI;   // angle from the beam axis
-                const phi = Math.atan2(n[2], n[1])*180.0/Math.PI;                          // azimuth: 0 deg = right (+y), 90 deg = up (+z)
-                poleMap.set(key, {x:sx, y:sy, h:-red[0], k:-red[1], l:-red[2], chi:chi, phi:phi});
-                // "-" signs: same convention as the detector map (Q = ki - kf).
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, projSpotRadius, 0, 2*Math.PI);
+                ctx.stroke();
+                if(showHKL==true){
+                    ctx.fillText(String(-H)+String(-K)+String(-L), p.x, p.y+projSpotRadius+8);
+                }
+                projPoles.push({x:p.x, y:p.y, H:-H, K:-K, L:-L, lambda:ref.lambda, theta:p.theta});
             }
         }
     }
 
-    projPoles = Array.from(poleMap.values());
-
-    // draw poles
-    ctx.fillStyle = fundamental_color;
-    for(const p of projPoles){
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, poleRadius, 0, 2*Math.PI);
-        ctx.fill();
-
-        const maxIdx = Math.max(Math.abs(p.h),Math.abs(p.k),Math.abs(p.l));
-        if(labelLowOnly==false || maxIdx<=lowIndexLabelMax){
-            ctx.fillText(String(p.h)+String(p.k)+String(p.l), p.x+4, p.y-4);
-        }
-    }
-
-    // target reflection pole
-    let tgtInfo = "Target pole: not set.";
+    // target reflection (large circle, same convention as the diffraction view)
+    let tgtInfo = "Target reflection: not set.";
     const Ht = readNum('Ht');
     const Kt = readNum('Kt');
     const Lt = readNum('Lt');
     if(!(Ht==0 && Kt==0 && Lt==0)){
-        // same sign convention as the detector map (code-internal indices are negated)
-        let G = new Array(3);
-        for(let i=0;i<3;i++){
-            G[i]=(-Ht)*a_star[i]+(-Kt)*b_star[i]+(-Lt)*c_star[i];
-        }
-        const Glen = Math.sqrt(G[0]**2.0+G[1]**2.0+G[2]**2.0);
-        if(Glen>0 && G[0]<0){
-            const n = [G[0]/Glen, G[1]/Glen, G[2]/Glen];
-            const py = n[1]/(1.0-n[0]);
-            const pz = n[2]/(1.0-n[0]);
-            const sx = cx + py*Req;
-            const sy = cy - pz*Req;
-            const chi = Math.acos(Math.min(1.0,Math.max(-1.0,-n[0])))*180.0/Math.PI;
-            const phi = Math.atan2(n[2], n[1])*180.0/Math.PI;
-            ctx.strokeStyle = gridcolor;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(sx, sy, poleRadius_tgt, 0, 2*Math.PI);
-            ctx.stroke();
-            ctx.fillStyle = gridcolor;
-            ctx.fillText(String(Ht)+String(Kt)+String(Lt), sx+6, sy+12);
-            ctx.fillStyle = fundamental_color;
-            ctx.lineWidth = 1;
-            tgtInfo = "Target pole ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): "
-                     +"\u03C7 = "+chi.toFixed(2)+"\u00B0 from the beam axis, "
-                     +"\u03C6 = "+fmtPhi(chi,phi)+" (0\u00B0 = right, 90\u00B0 = up).";
+        const tref = calcBraggReflection(-Ht,-Kt,-Lt);   // minus signs: convert Q=kf-ki to Q=ki-kf.
+        if(tref!=null){
+            const p = spotToProj(tref);
+            if(p!=null){
+                ctx.strokeStyle = gridcolor;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, poleRadius_tgt, 0, 2*Math.PI);
+                ctx.stroke();
+                ctx.fillStyle = gridcolor;
+                ctx.fillText(String(Ht)+String(Kt)+String(Lt), p.x+6, p.y+14);
+                ctx.strokeStyle = fundamental_color;
+                ctx.fillStyle = fundamental_color;
+                ctx.lineWidth = ref_linewidth;
+                tgtInfo = "Target reflection ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): "
+                         +"\u03B8 = "+p.theta.toFixed(2)+"\u00B0 from the beam axis "
+                         +"(pole tilt \u03C7 = \u03B8/2 = "+(p.theta/2.0).toFixed(2)+"\u00B0).";
+            }
+            else{
+                tgtInfo = "Target reflection ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): outside the detector area.";
+            }
         }
         else{
-            tgtInfo = "Target pole ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): not in the backscattering hemisphere.";
+            tgtInfo = "Target reflection ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): does not satisfy the current diffraction conditions.";
         }
     }
     document.getElementById('target_pole_info').innerHTML = tgtInfo;
@@ -941,14 +943,6 @@ function hover_DetMap(evt){
     }
 }
 
-function fmtPhi(chi, phi){
-    // azimuth is undefined on the beam axis
-    if(chi < 0.05){
-        return "\u2014";
-    }
-    return phi.toFixed(2)+"\u00B0";
-}
-
 function hover_Projection(evt){
     const canvas = document.getElementById('CanvasProjection');
     const [mx,my] = canvasCoords(canvas, evt);
@@ -960,12 +954,19 @@ function hover_Projection(evt){
     }
     const el = document.getElementById('pole_info');
     if(best==null){
-        el.innerHTML = "Hover over a pole to inspect it.";
+        el.innerHTML = "Hover over a spot to inspect it.";
     }
     else{
-        el.innerHTML = "pole ("+String(best.h)+", "+String(best.k)+", "+String(best.l)+")"
-                      +", &chi; = "+best.chi.toFixed(2)+"&deg; from the beam axis"
-                      +", &phi; = "+fmtPhi(best.chi,best.phi);
+        const coloc = projPoles.filter(s => (s.x-best.x)**2.0+(s.y-best.y)**2.0 < 1.0);
+        coloc.sort((p,q)=>(Math.abs(p.H)+Math.abs(p.K)+Math.abs(p.L))-(Math.abs(q.H)+Math.abs(q.K)+Math.abs(q.L)));
+        const maxShown = 4;
+        let list = coloc.slice(0,maxShown)
+            .map(s=>"("+String(s.H)+", "+String(s.K)+", "+String(s.L)+") &lambda;="+s.lambda.toFixed(3)+" &Aring;")
+            .join(" / ");
+        if(coloc.length>maxShown){
+            list += " / +"+String(coloc.length-maxShown)+" more";
+        }
+        el.innerHTML = list+", &theta; = "+best.theta.toFixed(2)+"&deg; from the beam axis";
     }
 }
 
