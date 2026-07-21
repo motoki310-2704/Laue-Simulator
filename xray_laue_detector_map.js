@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m7";
+const version = "1.3+m9";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -22,9 +22,9 @@ let Y0_ofst=0;
 
 
 //parameters for the appearance of the simulation
-const radius=5;       // radius of circles showing refletions in the simulation.
-const radius_tgt=8;     //// radius of a circle showing a target refletions in the simulation.
-const txt_ofst1=radius+10;   //offset along Y direction for indices shown near each reflection.
+let radius=5;       // radius of circles showing refletions in the simulation (adjustable by the spot-size slider).
+let radius_tgt=8;     //// radius of a circle showing a target refletions in the simulation (tracks the spot-size slider).
+let txt_ofst1=radius+10;   //offset along Y direction for indices shown near each reflection.
 const ref_linewidth=1;
 
 //colorSet variables
@@ -105,8 +105,8 @@ let currentView = 'diffraction';            // 'diffraction' | 'projection'
 //---- projection settings (new) -----------------------------------------
 const projSize = 480;                       // canvas size (px), square
 const projMargin = 0.90;                    // equator radius = projSize/2 * projMargin
-const projSpotRadius = 4;                   // radius of circles showing reflections in the projection view
-const poleRadius_tgt = 7;
+let projSpotRadius = 4;                     // radius of circles showing reflections in the projection view (adjustable by the spot-size slider)
+let poleRadius_tgt = 7;   // target-circle radius in the projection view (tracks the spot-size slider)
 
 //---- hover data (new) ---------------------------------------------------
 let detSpots = [];   // [{x,y,H,K,L,lambda}] in canvas pixels (physical indices)
@@ -193,6 +193,19 @@ window.addEventListener('load', () => {
         draw();
     });
 
+    document.getElementById('rot_history_toggle').addEventListener('click', (evt) => {
+        const box = document.getElementById('rot_history_box');
+        const btn = document.getElementById('rot_history_toggle');
+        if(box.style.display=='none'){
+            box.style.display='block';
+            btn.value='Hide history';
+        }
+        else{
+            box.style.display='none';
+            btn.value='Show history';
+        }
+    });
+
     document.getElementById('set_origin_button').addEventListener('click', (evt) => {
         set_Origin_and_draw();
     });
@@ -224,6 +237,16 @@ window.addEventListener('load', () => {
 
     document.getElementById('det_display_scale').addEventListener('input', (evt) => {
         apply_DetMap_DisplaySize();
+    });
+
+    document.getElementById('det_spot_radius').addEventListener('input', (evt) => {
+        document.getElementById('det_spot_radius_disp').innerHTML = document.getElementById('det_spot_radius').value+" px";
+        draw_DetMap();
+    });
+
+    document.getElementById('proj_spot_radius').addEventListener('input', (evt) => {
+        document.getElementById('proj_spot_radius_disp').innerHTML = document.getElementById('proj_spot_radius').value+" px";
+        draw_Projection();
     });
 
     document.getElementById('proj_display_scale').addEventListener('input', (evt) => {
@@ -581,6 +604,11 @@ function draw_DetMap(){
     canvas.width=scaleX;
     canvas.height=scaleY;
 
+    radius = readNum('det_spot_radius');
+    if(!(radius>0)){ radius=5; }
+    txt_ofst1 = radius+10;
+    radius_tgt = radius+3;
+
     apply_ColorSet();
 
     let context = canvas.getContext('2d');
@@ -744,6 +772,10 @@ function draw_Projection(){
     const cx = projSize/2.0;
     const cy = projSize/2.0;
     const Req = projSize/2.0*projMargin;   // theta = 90 deg. (backscattering limit)
+
+    projSpotRadius = readNum('proj_spot_radius');
+    if(!(projSpotRadius>0)){ projSpotRadius=4; }
+    poleRadius_tgt = projSpotRadius+3;
 
     apply_ColorSet();
 

@@ -10,7 +10,7 @@
       }
     }
   </script>
-<script type="module" src="./xray_laue_detector_map.js?20260721g"></script>
+<script type="module" src="./xray_laue_detector_map.js?20260721i"></script>
 <meta charset="UTF-8">
 </head>
 <body>
@@ -151,7 +151,8 @@
                             <span id="rot_net">Net rotation from origin: 0.00&deg; (at origin)</span><br />
                             <span class="rot_note">The per-axis totals depend on the order of operations; the net rotation (angle and axis) is exact.<br />
                             The origin is the orientation defined by <b><i>u</i></b> and <b><i>v</i></b>. Pressing "Set lattice" / "Set orientation" also resets the counters.</span><br />
-                            History: <span id="rot_history"></span>
+                            <input type="button" value="Show history" id="rot_history_toggle" />
+                            <div id="rot_history_box" style="display:none">History: <span id="rot_history"></span></div>
                         </div>
                     </td>
                     <td width="20"> 
@@ -197,6 +198,7 @@
             <!-- diffraction view (original detector map) -->
             <div id="view_diffraction">
                 Display size: <input type="range" value="100" min="25" max="200" step="5" id="det_display_scale"><span id="det_display_scale_disp">100%</span> <span class="rot_note">(on-screen size only; does not affect the calculation or the downloaded PNG)</span><br />
+                Spot size: <input type="range" value="5" min="1" max="15" step="1" id="det_spot_radius"><span id="det_spot_radius_disp">5 px</span><br />
                 <canvas id="CanvasDetMap" class="box"></canvas><br />
                 <span class="info_line" id="spot_info">Hover over a spot to inspect it.</span><br />
                 <input type="checkbox" id="show_all_indices" class="radio_bt_visible"><label for="show_all_indices">Show indices for all spots</label><br />
@@ -206,6 +208,7 @@
             <!-- stereographic projection view (new) -->
             <div id="view_projection" style="display:none">
                 Display size: <input type="range" value="100" min="25" max="200" step="5" id="proj_display_scale"><span id="proj_display_scale_disp">100%</span> <span class="rot_note">(on-screen size only; does not affect the calculation or the downloaded PNG)</span><br />
+                Spot size: <input type="range" value="4" min="1" max="15" step="1" id="proj_spot_radius"><span id="proj_spot_radius_disp">4 px</span><br />
                 <canvas id="CanvasProjection" class="box"></canvas><br />
                 <span class="info_line" id="pole_info">Hover over a spot to inspect it.</span><br />
                 <span class="info_line" id="target_pole_info">Target reflection: not set.</span><br />
