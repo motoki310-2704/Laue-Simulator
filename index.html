@@ -10,7 +10,7 @@
       }
     }
   </script>
-<script type="module" src="./xray_laue_detector_map.js?20260721"></script>
+<script type="module" src="./xray_laue_detector_map.js?20260721c"></script>
 <meta charset="UTF-8">
 </head>
 <body>
@@ -208,7 +208,8 @@
                 <span class="info_line" id="pole_info">Hover over a pole to inspect it.</span><br />
                 <span class="info_line" id="target_pole_info">Target pole: not set.</span><br />
                 <input type="checkbox" id="proj_label_lowindex" class="radio_bt_visible" checked><label for="proj_label_lowindex">Label low-index poles only (|<i>h</i>|,|<i>k</i>|,|<i>l</i>| &le; 3)</label><br />
-                <span class="rot_note">Poles of the reflections appearing under the current conditions, viewed along the incident beam ( center = beam axis, right = +y, up = +z, dashed circles: &chi; = 30&deg;, 60&deg;, solid: 90&deg; ). Indices are reduced to the lowest integers.</span><br />
+                <span class="rot_note">Poles of the reflections appearing under the current conditions, viewed along the incident beam ( center = beam axis, right = +y, up = +z, dashed circles: &chi; = 30&deg;, 60&deg;, solid: 90&deg; ). Indices are reduced to the lowest integers.<br />
+                When an observed Laue image is loaded, it is remapped from the detector plane to pole coordinates ( &chi; = &frac12;&middot;atan(<i>r</i>/<i>L</i><sub>sd</sub>) ), so measured spots overlap the corresponding simulated poles. The flat detector covers &chi; &lt; 45&deg;; correct alignment requires accurate detector params (distance and center offset).</span><br />
                 <a download="Projection.png" href="#" id="Projection_download">Download the stereographic projection as a png file.</a><br />
             </div>
             <br />

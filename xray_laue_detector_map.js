@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m1";
+const version = "1.3+m3";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -92,6 +92,9 @@ let oriRenderer = null;   // WebGL renderer is created once and reused (avoids c
 let imageLoaded=false;
 let imageURL;
 let image = new Image();
+let imgPixels=null;   // cached RGBA pixel data of the observed image
+let imgW=0;
+let imgH=0;
 
 //---- rotation tracking (new) -------------------------------------------
 let rotTotals = {x:0.0, y:0.0, z:0.0};      // simple sums of button presses (order-dependent)
@@ -117,30 +120,30 @@ let projPoles = [];  // [{x,y,h,k,l,chi,phi}] in canvas pixels (physical reduced
 window.addEventListener('load', () => {
     init_draw();
 
-    document.getElementById('set_lattice_button').addEventListener('click', (evt) => {    
+    document.getElementById('set_lattice_button').addEventListener('click', (evt) => {
         draw();
     });
 
-    document.getElementById('RefCon').addEventListener('change', (evt) => {   
+    document.getElementById('RefCon').addEventListener('change', (evt) => {
         // Changing the reflection condition no longer resets the sample rotation.
         set_ReflectionCondition();
         draw_maps();
     });
 
-    document.getElementById('set_orientation_button').addEventListener('click', (evt) => {   
+    document.getElementById('set_orientation_button').addEventListener('click', (evt) => {
         draw();
     });
 
-    document.getElementById('set_target_ref_button').addEventListener('click', (evt) => {   
+    document.getElementById('set_target_ref_button').addEventListener('click', (evt) => {
         // Setting a target reflection no longer resets the sample rotation.
         draw_maps();
     });
 
-    document.getElementById('lambda_min').addEventListener('input', (evt) => {     
+    document.getElementById('lambda_min').addEventListener('input', (evt) => {
         lambda_adjust_and_draw();
     });
 
-    document.getElementById('Q_max').addEventListener('input', (evt) => {    
+    document.getElementById('Q_max').addEventListener('input', (evt) => {
         lambda_adjust_and_draw();
     });
 
@@ -159,27 +162,27 @@ window.addEventListener('load', () => {
         removeFile();
     });
 
-    document.getElementById('rot_x_plus').addEventListener('click', (evt) => {    
+    document.getElementById('rot_x_plus').addEventListener('click', (evt) => {
         rot_and_draw('rot_x_plus');
     });
 
-    document.getElementById('rot_y_plus').addEventListener('click', (evt) => {    
+    document.getElementById('rot_y_plus').addEventListener('click', (evt) => {
         rot_and_draw('rot_y_plus');
     });
 
-    document.getElementById('rot_z_plus').addEventListener('click', (evt) => {    
+    document.getElementById('rot_z_plus').addEventListener('click', (evt) => {
         rot_and_draw('rot_z_plus');
     });
 
-    document.getElementById('rot_x_minus').addEventListener('click', (evt) => {   
+    document.getElementById('rot_x_minus').addEventListener('click', (evt) => {
         rot_and_draw('rot_x_minus');
     });
 
-    document.getElementById('rot_y_minus').addEventListener('click', (evt) => {   
+    document.getElementById('rot_y_minus').addEventListener('click', (evt) => {
         rot_and_draw('rot_y_minus');
     });
 
-    document.getElementById('rot_z_minus').addEventListener('click', (evt) => {   
+    document.getElementById('rot_z_minus').addEventListener('click', (evt) => {
         rot_and_draw('rot_z_minus');
     });
 
@@ -188,15 +191,15 @@ window.addEventListener('load', () => {
         draw();
     });
 
-    document.getElementById('set_origin_button').addEventListener('click', (evt) => {   
+    document.getElementById('set_origin_button').addEventListener('click', (evt) => {
         set_Origin_and_draw();
     });
-    
-    document.getElementById('cam_theta').addEventListener('input', (evt) => {   
+
+    document.getElementById('cam_theta').addEventListener('input', (evt) => {
         draw_OriViewer();
     });
 
-    document.getElementById('cam_phi').addEventListener('input', (evt) => {   
+    document.getElementById('cam_phi').addEventListener('input', (evt) => {
         draw_OriViewer();
     });
 
@@ -242,7 +245,9 @@ function init_draw(){
 }
 
 function draw() {
-    set_Lattice();
+    if(set_Lattice()==false){
+        return;
+    }
     reset_rotation_tracking();
     set_ReflectionCondition();
     lambda_adjust_and_draw();
@@ -269,29 +274,64 @@ function lambda_adjust_and_draw(){
 }
 
 function set_Origin_and_draw(){
-    X0_ofst = Number(document.getElementById("X0_ofst").value);
-    Y0_ofst = -Number(document.getElementById("Y0_ofst").value);
-    Lsd = Number(document.getElementById("Lsd").value);
-    DetHeight = Number(document.getElementById("DetHeight").value);
+    X0_ofst = readNum('X0_ofst');
+    Y0_ofst = -readNum('Y0_ofst');
+    Lsd = readNum('Lsd');
+    DetHeight = readNum('DetHeight');
     draw_maps();
 }
 
 
+//---- robust numeric input (new) -----------------------------------------
+// Accepts comma decimal separators and full-width characters, writes the
+// sanitized value back into the field, and returns a Number (NaN if invalid).
+function readNum(id){
+    const el = document.getElementById(id);
+    let s = String(el.value);
+    s = s.replace(/[\uFF10-\uFF19]/g, (ch)=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0)); // full-width digits
+    s = s.replace(/[\uFF0E\u3002]/g, ".");     // full-width period
+    s = s.replace(/[\uFF0C\u3001]/g, ",");     // full-width comma
+    s = s.replace(/[\uFF0D\u2212\u30FC]/g, "-"); // full-width/long minus signs
+    s = s.replace(/,/g, ".").trim();             // decimal comma -> period
+    if(String(el.value)!==s){
+        el.value = s;
+    }
+    return Number(s);
+}
+
 function set_Lattice(){
 
     //input parameters: lattice constants and sample orientation)
-    let a = Number(document.getElementById('a').value);
-    let b = Number(document.getElementById('b').value);
-    let c = Number(document.getElementById('c').value);
-    let alpha = Number(document.getElementById('alpha').value)/180.0*Math.PI;   // in radian
-    let beta  = Number(document.getElementById('beta').value)/180.0*Math.PI;    // in radian
-    let gamma = Number(document.getElementById('gamma').value)/180.0*Math.PI;   // in radian
-    u[0] = Number(document.getElementById('u1').value);
-    u[1] = Number(document.getElementById('u2').value);
-    u[2] = Number(document.getElementById('u3').value);
-    v[0] = Number(document.getElementById('v1').value);
-    v[1] = Number(document.getElementById('v2').value);
-    v[2] = Number(document.getElementById('v3').value);
+    let a = readNum('a');
+    let b = readNum('b');
+    let c = readNum('c');
+    let alpha_deg = readNum('alpha');
+    let beta_deg  = readNum('beta');
+    let gamma_deg = readNum('gamma');
+    let alpha = alpha_deg/180.0*Math.PI;   // in radian
+    let beta  = beta_deg/180.0*Math.PI;    // in radian
+    let gamma = gamma_deg/180.0*Math.PI;   // in radian
+    u[0] = readNum('u1');
+    u[1] = readNum('u2');
+    u[2] = readNum('u3');
+    v[0] = readNum('v1');
+    v[1] = readNum('v2');
+    v[2] = readNum('v3');
+
+    // validation: invalid inputs previously produced a blank map with no warning.
+    const problems = [];
+    if(!(a>0)){ problems.push("a"); }
+    if(!(b>0)){ problems.push("b"); }
+    if(!(c>0)){ problems.push("c"); }
+    if(!(alpha_deg>0 && alpha_deg<180)){ problems.push("alpha"); }
+    if(!(beta_deg>0 && beta_deg<180)){ problems.push("beta"); }
+    if(!(gamma_deg>0 && gamma_deg<180)){ problems.push("gamma"); }
+    if(u.some((x)=>!isFinite(x)) || (u[0]==0&&u[1]==0&&u[2]==0)){ problems.push("u"); }
+    if(v.some((x)=>!isFinite(x)) || (v[0]==0&&v[1]==0&&v[2]==0)){ problems.push("v"); }
+    if(problems.length>0){
+        alert("Invalid input: "+problems.join(", ")+"\n(Lattice constants must be positive numbers, angles must be between 0 and 180 deg., and u, v must be nonzero vectors. Use a period as the decimal separator.)");
+        return false;
+    }
 
     // calculation
     let DD = (Math.cos(alpha)-Math.cos(gamma)*Math.cos(beta))/Math.sin(gamma);
@@ -304,7 +344,7 @@ function set_Lattice(){
     vx[1] = 2.0*Math.PI*(-v[0]/a/Math.tan(gamma)+v[1]/b/Math.sin(gamma));
     vx[2] = 2.0*Math.PI*(v[0]/a*(DD/Math.tan(gamma)-Math.cos(beta))-v[1]/b*DD/Math.sin(gamma)+v[2]/c)/PP;
 
-    let uy2uz2 = ux[1]**2.0+ux[2]**2.0;    
+    let uy2uz2 = ux[1]**2.0+ux[2]**2.0;
     let Uabs = Math.sqrt(ux[0]**2.0+uy2uz2);
     let Rvy;
     let Rvz;
@@ -316,7 +356,7 @@ function set_Lattice(){
         Rvy =(-vx[0]*ux[1]+(vx[1]*(ux[0]*ux[1]**2.0+Uabs*ux[2]**2.0)+vx[2]*ux[1]*ux[2]*(ux[0]-Uabs))/uy2uz2)/Uabs;
         Rvz =(-vx[0]*ux[2]+(vx[2]*(ux[0]*ux[2]**2.0+Uabs*ux[1]**2.0)+vx[1]*ux[2]*ux[1]*(ux[0]-Uabs))/uy2uz2)/Uabs;
     }
-    
+
     let cosphi=Rvy/Math.sqrt(Rvy**2.0+Rvz**2.0);
     let sinphi=Rvz/Math.sqrt(Rvy**2.0+Rvz**2.0);
 
@@ -334,7 +374,7 @@ function set_Lattice(){
         a_unit[i]= Rot[i][0];
         b_unit[i]= Rot[i][0]*Math.cos(gamma)+Rot[i][1]*Math.sin(gamma);
         c_unit[i]= Rot[i][0]*Math.cos(beta)+Rot[i][1]*DD+Rot[i][2]*PP;
-    } 
+    }
 
     // output parameters: 3 reciprocal lattice vectors, a*, b*, and c*
     for (let i=0;i<3;i++){
@@ -342,11 +382,12 @@ function set_Lattice(){
         b_star[i]= 2.0*Math.PI/b/PP/Math.sin(gamma)*(c_unit[(i+1)%3]*a_unit[(i+2)%3]-c_unit[(i+2)%3]*a_unit[(i+1)%3]);
         c_star[i]= 2.0*Math.PI/c/PP/Math.sin(gamma)*(a_unit[(i+1)%3]*b_unit[(i+2)%3]-a_unit[(i+2)%3]*b_unit[(i+1)%3]);
     }
-    
+
     as_len = Math.sqrt(a_star[0]**2.0+a_star[1]**2.0+a_star[2]**2.0);
     bs_len = Math.sqrt(b_star[0]**2.0+b_star[1]**2.0+b_star[2]**2.0);
     cs_len = Math.sqrt(c_star[0]**2.0+c_star[1]**2.0+c_star[2]**2.0);
 
+    return true;
 }
 
 function set_ReflectionCondition(){
@@ -426,7 +467,7 @@ function calcBraggReflection(H1,K1,L1){
     kf[2]=Ghkl[2];
 
     if(kf[0]>=0){
-        //Backscattering condition: the scattered X-ray must go to -x direction, namely opposite to the incident x-ray direction. 
+        //Backscattering condition: the scattered X-ray must go to -x direction, namely opposite to the incident x-ray direction.
         return null;
     }
 
@@ -446,13 +487,13 @@ function draw_DetMap(){
             scaleX=scaleY_default;
             scaleY=scaleY_default;
             X0=scaleY_default/2.0;
-            Y0=scaleY_default/2.0;            
+            Y0=scaleY_default/2.0;
         }
         else{
             scaleX=scaleX_default;
             scaleY=scaleY_default;
             X0=scaleX_default/2.0;
-            Y0=scaleY_default/2.0;            
+            Y0=scaleY_default/2.0;
         }
     }
     canvas.width=scaleX;
@@ -482,7 +523,7 @@ function draw_DetMap(){
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.strokeStyle = "rgb(0, 0, 0)";
     context.lineWidth=1;
-    
+
 
     //set background color
     context.fillStyle = DetMapBGColor;
@@ -551,9 +592,9 @@ function draw_DetMap(){
 
     //draw large circle for the target reflection.
     context.strokeStyle = fundamental_color;
-    let Ht=-Number(document.getElementById("Ht").value);
-    let Kt=-Number(document.getElementById("Kt").value);
-    let Lt=-Number(document.getElementById("Lt").value);
+    let Ht=-readNum('Ht');
+    let Kt=-readNum('Kt');
+    let Lt=-readNum('Lt');
     //minus signs are necessary to convert Q=kf-ki to Q=ki-kf.
     const tref = calcBraggReflection(Ht,Kt,Lt);
     if(tref!=null && tref.PosX>=0 && tref.PosX<scaleX && tref.PosY >= 0 && tref.PosY <=scaleY){
@@ -592,6 +633,69 @@ function reduceHKL(H,K,L){
     return [H/g, K/g, L/g];
 }
 
+// Map a projection-canvas pixel to the corresponding detector-map pixel
+// (Greninger-type transformation).
+// Projection radius: rho = tan(chi/2) (chi = pole angle from the beam axis).
+// A pole at chi produces a spot at polar angle 2*chi from the backward
+// direction, i.e. at radius r = Lsd*tan(2*chi) [mm] on the flat detector,
+// at the same azimuth. Returns [imgx, imgy] or null (outside the detector's
+// angular range, chi >= 45 deg).
+function projPixelToDetPixel(px, py, cx, cy, Req){
+    const dx = (px-cx)/Req;       // screen right = +y
+    const dy = (cy-py)/Req;       // screen up = +z
+    const rho = Math.sqrt(dx*dx+dy*dy);
+    if(rho>1.0){
+        return null;              // outside the equator
+    }
+    const chi = 2.0*Math.atan(rho);
+    if(chi >= Math.PI/4.0*0.999){
+        return null;              // a flat backscattering detector only covers 2*chi < 90 deg., i.e. chi < 45 deg.
+    }
+    const r_mm = Lsd*Math.tan(2.0*chi);
+    const mm2pixel = scaleY/DetHeight;
+    let cosphi = 1.0;
+    let sinphi = 0.0;
+    if(rho>0){
+        cosphi = dx/rho;
+        sinphi = dy/rho;
+    }
+    const imgx = X0+X0_ofst + r_mm*mm2pixel*cosphi;
+    const imgy = Y0+Y0_ofst - r_mm*mm2pixel*sinphi;
+    return [imgx, imgy];
+}
+
+function draw_ProjectionImageOverlay(ctx, cx, cy, Req){
+    if(imageLoaded==false || imgPixels==null){
+        return;
+    }
+    const out = ctx.createImageData(projSize, projSize);
+    const od = out.data;
+    // initialize to opaque white
+    for(let i=0;i<od.length;i+=4){
+        od[i]=255; od[i+1]=255; od[i+2]=255; od[i+3]=255;
+    }
+    for(let py=0;py<projSize;py++){
+        for(let px=0;px<projSize;px++){
+            const m = projPixelToDetPixel(px, py, cx, cy, Req);
+            if(m==null){
+                continue;
+            }
+            const ix = Math.round(m[0]);
+            const iy = Math.round(m[1]);
+            if(ix<0 || ix>=imgW || iy<0 || iy>=imgH){
+                continue;
+            }
+            const si = (iy*imgW+ix)*4;
+            const di = (py*projSize+px)*4;
+            od[di]  =imgPixels[si];
+            od[di+1]=imgPixels[si+1];
+            od[di+2]=imgPixels[si+2];
+            od[di+3]=255;
+        }
+    }
+    ctx.putImageData(out, 0, 0);
+}
+
 function draw_Projection(){
 
     const canvas = document.getElementById('CanvasProjection');
@@ -606,6 +710,9 @@ function draw_Projection(){
     ctx.clearRect(0,0,projSize,projSize);
     ctx.fillStyle = "rgb(255,255,255)";
     ctx.fillRect(0,0,projSize,projSize);
+
+    // observed Laue image, remapped from the detector plane to pole coordinates
+    draw_ProjectionImageOverlay(ctx, cx, cy, Req);
 
     // guide circles: chi = 30, 60 (dashed) and 90 deg (equator, solid)
     ctx.strokeStyle = gridcolor;
@@ -697,9 +804,9 @@ function draw_Projection(){
 
     // target reflection pole
     let tgtInfo = "Target pole: not set.";
-    const Ht = Number(document.getElementById("Ht").value);
-    const Kt = Number(document.getElementById("Kt").value);
-    const Lt = Number(document.getElementById("Lt").value);
+    const Ht = readNum('Ht');
+    const Kt = readNum('Kt');
+    const Lt = readNum('Lt');
     if(!(Ht==0 && Kt==0 && Lt==0)){
         // same sign convention as the detector map (code-internal indices are negated)
         let G = new Array(3);
@@ -912,27 +1019,27 @@ function rot_Lattice(rot_ax_dir){
     let xyz;          // xyz=(0,1,2) for (x, y, z)-axis respectively.
     switch(rot_ax_dir){
         case 'rot_x_plus':
-            angle = Number(document.getElementById('rot_x_deg').value)/180.0*Math.PI;
+            angle = readNum('rot_x_deg')/180.0*Math.PI;
             xyz =0;
             break;
         case 'rot_x_minus':
-            angle = (-1.0)*Number(document.getElementById('rot_x_deg').value)/180.0*Math.PI;
+            angle = (-1.0)*readNum('rot_x_deg')/180.0*Math.PI;
             xyz =0;
             break;
         case 'rot_y_plus':
-            angle = Number(document.getElementById('rot_y_deg').value)/180.0*Math.PI;
+            angle = readNum('rot_y_deg')/180.0*Math.PI;
             xyz =1;
             break;
         case 'rot_y_minus':
-            angle = (-1.0)*Number(document.getElementById('rot_y_deg').value)/180.0*Math.PI;
+            angle = (-1.0)*readNum('rot_y_deg')/180.0*Math.PI;
             xyz =1;
             break;
         case 'rot_z_plus':
-            angle = Number(document.getElementById('rot_z_deg').value)/180.0*Math.PI;
+            angle = readNum('rot_z_deg')/180.0*Math.PI;
             xyz =2;
             break;
         case 'rot_z_minus':
-            angle = (-1.0)*Number(document.getElementById('rot_z_deg').value)/180.0*Math.PI;
+            angle = (-1.0)*readNum('rot_z_deg')/180.0*Math.PI;
             xyz =2;
             break;
         default:
@@ -966,7 +1073,7 @@ function draw_OriViewer(){
     // canvas size
     const width = 800;
     const height = 400;
-  
+
     // The WebGL renderer is created only once and reused
     // (creating a new one on every redraw leaks WebGL contexts).
     if(oriRenderer==null){
@@ -979,10 +1086,10 @@ function draw_OriViewer(){
         oriRenderer.setClearColor(0xf8f8f8);
     }
     const renderer = oriRenderer;
-  
+
     // scene
     const scene = new THREE.Scene();
-  
+
     // camera
     const camera = new THREE.PerspectiveCamera(30, width / height);
     let cam_theta=Number(document.getElementById("cam_theta").value);
@@ -990,7 +1097,7 @@ function draw_OriViewer(){
     let cam_len=1200;
     camera.position.set(cam_len*Math.sin(Math.PI/180.0*cam_theta)*Math.sin(Math.PI/180.0*cam_phi), cam_len*Math.cos(Math.PI/180.0*cam_theta), cam_len*Math.sin(Math.PI/180.0*cam_theta)*Math.cos(Math.PI/180.0*cam_phi));
     camera.lookAt(new THREE.Vector3(0, 0, 0));
-  
+
     // detector
     const material1 = new THREE.MeshStandardMaterial({ color: 0xC0C0C0 });  // color of detector bank
     let geometry_det = new THREE.BoxGeometry(DetBankThickness,DetHeight*scale3D,DetHeight/scaleY*scaleX*scale3D);
@@ -1003,7 +1110,7 @@ function draw_OriViewer(){
     const mesh_guide = new THREE.Mesh(geometry_guide, material1);
     scene.add(mesh_guide);
     mesh_guide.position.x -= Lsd*scale3D+500;
-    
+
     //draw a*, b*, c*
     //a*
     let dir = new THREE.Vector3( a_star[0],a_star[2], -a_star[1] );
@@ -1012,21 +1119,21 @@ function draw_OriViewer(){
     let hex = 0xff0000;
     let arrowHelper = new THREE.ArrowHelper( dir.normalize(), origin, arrow_len, hex ,arrow_HeadLen,arrow_HeadWidth);
     scene.add(arrowHelper);
-  
+
     //b*
     dir = new THREE.Vector3( b_star[0],b_star[2], -b_star[1] );
     arrow_len = dir.length()*arrow_scale;
     hex = 0x00ff00;
     arrowHelper = new THREE.ArrowHelper( dir.normalize(), origin, arrow_len, hex ,arrow_HeadLen,arrow_HeadWidth);
     scene.add(arrowHelper);
- 
+
     //c*
     dir = new THREE.Vector3( c_star[0],c_star[2], -c_star[1] );
     arrow_len = dir.length()*arrow_scale;
     hex = 0x0000ff;
     arrowHelper = new THREE.ArrowHelper( dir.normalize(), origin,arrow_len, hex ,arrow_HeadLen,arrow_HeadWidth);
     scene.add(arrowHelper);
-  
+
     //ki*
     dir = new THREE.Vector3( 1,0, 0 );
     arrow_len = dir.length()*arrow_scale;
@@ -1038,12 +1145,12 @@ function draw_OriViewer(){
     const directionalLight = new THREE.DirectionalLight(0xffffff);
     directionalLight.position.set(150, 240, -500);
     scene.add(directionalLight);
-  
+
     const light = new THREE.AmbientLight(0xa0a0a0, 1.0);
-    scene.add(light);  
-  
+    scene.add(light);
+
     renderer.render(scene, camera);
-  
+
   }
 
 function getFile(file){
@@ -1057,8 +1164,9 @@ function getFile(file){
             scaleY=image.height;
             X0=scaleX/2;
             Y0=scaleY/2;
+            cache_image_pixels();
             draw_maps();
-            draw_OriViewer();         
+            draw_OriViewer();
         };
     };
 }
@@ -1066,7 +1174,25 @@ function getFile(file){
 
 function removeFile(){
     imageLoaded=false;
+    imgPixels=null;
     draw_maps();
+}
+
+function cache_image_pixels(){
+    try{
+        const off = document.createElement('canvas');
+        off.width = image.width;
+        off.height = image.height;
+        const octx = off.getContext('2d');
+        octx.drawImage(image, 0, 0);
+        imgW = image.width;
+        imgH = image.height;
+        imgPixels = octx.getImageData(0, 0, imgW, imgH).data;
+    }
+    catch(e){
+        imgPixels=null;
+        console.log("Could not read image pixels:", e);
+    }
 }
 
 
