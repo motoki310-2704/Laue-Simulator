@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m5";
+const version = "1.3+m6";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -92,9 +92,6 @@ let oriRenderer = null;   // WebGL renderer is created once and reused (avoids c
 let imageLoaded=false;
 let imageURL;
 let image = new Image();
-let imgPixels=null;   // cached RGBA pixel data of the observed image
-let imgW=0;
-let imgH=0;
 
 //---- rotation tracking (new) -------------------------------------------
 let rotTotals = {x:0.0, y:0.0, z:0.0};      // simple sums of button presses (order-dependent)
@@ -232,6 +229,19 @@ window.addEventListener('load', () => {
 
     document.getElementById('proj_display_scale').addEventListener('input', (evt) => {
         apply_Projection_DisplaySize();
+    });
+
+    document.getElementById('proj_img_scale').addEventListener('input', (evt) => {
+        document.getElementById('proj_img_scale_disp').innerHTML = document.getElementById('proj_img_scale').value+"%";
+        draw_Projection();
+    });
+
+    document.getElementById('proj_img_ofstx').addEventListener('change', (evt) => {
+        draw_Projection();
+    });
+
+    document.getElementById('proj_img_ofsty').addEventListener('change', (evt) => {
+        draw_Projection();
     });
 
     const detCanvas = document.getElementById('CanvasDetMap');
@@ -692,67 +702,30 @@ function reduceHKL(H,K,L){
     return [H/g, K/g, L/g];
 }
 
-// Map a projection-canvas pixel to the corresponding detector-map pixel
-// (Greninger-type transformation).
-// Projection radius: rho = tan(chi/2) (chi = pole angle from the beam axis).
-// A pole at chi produces a spot at polar angle 2*chi from the backward
-// direction, i.e. at radius r = Lsd*tan(2*chi) [mm] on the flat detector,
-// at the same azimuth. Returns [imgx, imgy] or null (outside the detector's
-// angular range, chi >= 45 deg).
-function projPixelToDetPixel(px, py, cx, cy, Req){
-    const dx = (px-cx)/Req;       // screen right = +y
-    const dy = (cy-py)/Req;       // screen up = +z
-    const rho = Math.sqrt(dx*dx+dy*dy);
-    if(rho>1.0){
-        return null;              // outside the equator
-    }
-    const chi = 2.0*Math.atan(rho);
-    if(chi >= Math.PI/4.0*0.999){
-        return null;              // a flat backscattering detector only covers 2*chi < 90 deg., i.e. chi < 45 deg.
-    }
-    const r_mm = Lsd*Math.tan(2.0*chi);
-    const mm2pixel = scaleY/DetHeight;
-    let cosphi = 1.0;
-    let sinphi = 0.0;
-    if(rho>0){
-        cosphi = dx/rho;
-        sinphi = dy/rho;
-    }
-    const imgx = X0+X0_ofst + r_mm*mm2pixel*cosphi;
-    const imgy = Y0+Y0_ofst - r_mm*mm2pixel*sinphi;
-    return [imgx, imgy];
-}
-
+// Overlay the observed image on the projection view AS-IS (no geometric
+// transformation): the loaded image is assumed to be saved already in
+// projection coordinates by the measurement software. By default the image is
+// fitted into the square canvas (aspect ratio preserved, centered); its size
+// and position can be adjusted to align with the simulated poles.
 function draw_ProjectionImageOverlay(ctx, cx, cy, Req){
-    if(imageLoaded==false || imgPixels==null){
+    if(imageLoaded==false){
         return;
     }
-    const out = ctx.createImageData(projSize, projSize);
-    const od = out.data;
-    // initialize to opaque white
-    for(let i=0;i<od.length;i+=4){
-        od[i]=255; od[i+1]=255; od[i+2]=255; od[i+3]=255;
+    const iw = image.width;
+    const ih = image.height;
+    if(!(iw>0 && ih>0)){
+        return;
     }
-    for(let py=0;py<projSize;py++){
-        for(let px=0;px<projSize;px++){
-            const m = projPixelToDetPixel(px, py, cx, cy, Req);
-            if(m==null){
-                continue;
-            }
-            const ix = Math.round(m[0]);
-            const iy = Math.round(m[1]);
-            if(ix<0 || ix>=imgW || iy<0 || iy>=imgH){
-                continue;
-            }
-            const si = (iy*imgW+ix)*4;
-            const di = (py*projSize+px)*4;
-            od[di]  =imgPixels[si];
-            od[di+1]=imgPixels[si+1];
-            od[di+2]=imgPixels[si+2];
-            od[di+3]=255;
-        }
-    }
-    ctx.putImageData(out, 0, 0);
+    const fit = Math.min(projSize/iw, projSize/ih);   // contain-fit baseline
+    const pct = readNum('proj_img_scale')/100.0;
+    const s = fit*(isFinite(pct)&&pct>0 ? pct : 1.0);
+    let dx = readNum('proj_img_ofstx');
+    let dy = readNum('proj_img_ofsty');
+    if(!isFinite(dx)){ dx=0; }
+    if(!isFinite(dy)){ dy=0; }
+    const w = iw*s;
+    const h = ih*s;
+    ctx.drawImage(image, cx-w/2.0+dx, cy-h/2.0-dy, w, h);   // +dy moves the image up (same sense as the detector-map Y offset)
 }
 
 function draw_Projection(){
@@ -772,7 +745,7 @@ function draw_Projection(){
     ctx.fillStyle = "rgb(255,255,255)";
     ctx.fillRect(0,0,projSize,projSize);
 
-    // observed Laue image, remapped from the detector plane to pole coordinates
+    // observed Laue image (drawn as-is; assumed to be in projection coordinates)
     draw_ProjectionImageOverlay(ctx, cx, cy, Req);
 
     // guide circles: chi = 30, 60 (dashed) and 90 deg (equator, solid)
@@ -1227,7 +1200,6 @@ function getFile(file){
             scaleY=image.height;
             X0=scaleX/2;
             Y0=scaleY/2;
-            cache_image_pixels();
             draw_maps();
             draw_OriViewer();
         };
@@ -1237,25 +1209,7 @@ function getFile(file){
 
 function removeFile(){
     imageLoaded=false;
-    imgPixels=null;
     draw_maps();
-}
-
-function cache_image_pixels(){
-    try{
-        const off = document.createElement('canvas');
-        off.width = image.width;
-        off.height = image.height;
-        const octx = off.getContext('2d');
-        octx.drawImage(image, 0, 0);
-        imgW = image.width;
-        imgH = image.height;
-        imgPixels = octx.getImageData(0, 0, imgW, imgH).data;
-    }
-    catch(e){
-        imgPixels=null;
-        console.log("Could not read image pixels:", e);
-    }
 }
 
 
