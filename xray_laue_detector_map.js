@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m3";
+const version = "1.3+m4";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -218,6 +218,14 @@ window.addEventListener('load', () => {
 
     document.getElementById('proj_label_lowindex').addEventListener('change', (evt) => {
         draw_Projection();
+    });
+
+    document.getElementById('det_display_scale').addEventListener('input', (evt) => {
+        apply_DetMap_DisplaySize();
+    });
+
+    document.getElementById('proj_display_scale').addEventListener('input', (evt) => {
+        apply_Projection_DisplaySize();
     });
 
     const detCanvas = document.getElementById('CanvasDetMap');
@@ -479,6 +487,42 @@ function calcBraggReflection(H1,K1,L1){
 }
 
 
+//---- on-screen display size control (new) --------------------------------
+// Scales the canvas on screen via CSS only; the internal pixel resolution
+// (used for coordinate calculations, hover picking, and PNG downloads)
+// is untouched, so the underlying simulation is unaffected.
+const detDisplayMinW = 250;
+const detDisplayMaxW = 1200;   // matches the original default wide-canvas width
+
+function computeBaselineSize(nativeW, nativeH, minW, maxW){
+    let scale = 1.0;
+    if(nativeW > maxW){
+        scale = maxW/nativeW;
+    }
+    else if(nativeW < minW){
+        scale = minW/nativeW;
+    }
+    return [nativeW*scale, nativeH*scale];
+}
+
+function apply_DetMap_DisplaySize(){
+    const canvas = document.getElementById('CanvasDetMap');
+    const [baseW, baseH] = computeBaselineSize(canvas.width, canvas.height, detDisplayMinW, detDisplayMaxW);
+    const pct = Number(document.getElementById('det_display_scale').value)/100.0;
+    canvas.style.width = (baseW*pct)+"px";
+    canvas.style.height = (baseH*pct)+"px";
+    document.getElementById('det_display_scale_disp').innerHTML = document.getElementById('det_display_scale').value+"%";
+}
+
+function apply_Projection_DisplaySize(){
+    const canvas = document.getElementById('CanvasProjection');
+    const [baseW, baseH] = computeBaselineSize(canvas.width, canvas.height, 250, 700);
+    const pct = Number(document.getElementById('proj_display_scale').value)/100.0;
+    canvas.style.width = (baseW*pct)+"px";
+    canvas.style.height = (baseH*pct)+"px";
+    document.getElementById('proj_display_scale_disp').innerHTML = document.getElementById('proj_display_scale').value+"%";
+}
+
 function draw_DetMap(){
 
     let canvas = document.getElementById('CanvasDetMap');
@@ -603,6 +647,8 @@ function draw_DetMap(){
         context.stroke();
         context.fillText(String(-Ht)+String(-Kt)+String(-Lt), tref.PosX, tref.PosY+txt_ofst1);
     }
+
+    apply_DetMap_DisplaySize();
 
     window.URL.revokeObjectURL(document.getElementById('DetMap_download').href);
     canvas.toBlob((blob)=>{
@@ -840,6 +886,8 @@ function draw_Projection(){
         }
     }
     document.getElementById('target_pole_info').innerHTML = tgtInfo;
+
+    apply_Projection_DisplaySize();
 
     window.URL.revokeObjectURL(document.getElementById('Projection_download').href);
     canvas.toBlob((blob)=>{
