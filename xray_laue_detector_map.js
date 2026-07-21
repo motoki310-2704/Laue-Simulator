@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m10";
+const version = "1.3+m11";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -263,13 +263,16 @@ window.addEventListener('load', () => {
         draw_Projection();
     });
 
-    document.getElementById('proj_img_ofstx').addEventListener('change', (evt) => {
-        draw_Projection();
-    });
-
-    document.getElementById('proj_img_ofsty').addEventListener('change', (evt) => {
-        draw_Projection();
-    });
+    // 'input' fires on every keystroke, so the overlay follows the typed value
+    // immediately ('change' alone only fires on Enter / focus loss).
+    for(const ofstId of ['proj_img_ofstx','proj_img_ofsty']){
+        document.getElementById(ofstId).addEventListener('input', (evt) => {
+            draw_Projection();
+        });
+        document.getElementById(ofstId).addEventListener('change', (evt) => {
+            draw_Projection();
+        });
+    }
 
     const detCanvas = document.getElementById('CanvasDetMap');
     detCanvas.addEventListener('mousemove', (evt) => {
