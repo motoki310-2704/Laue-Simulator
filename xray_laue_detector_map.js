@@ -5,7 +5,7 @@ import * as THREE from 'three';
 //Modified version: adds view switching (diffraction / stereographic projection),
 //rotation tracking from origin, hover inspection, and misc. improvements.
 
-const version = "1.3+m4";
+const version = "1.3+m5";
 
 const scaleX_default=1200;
 const scaleY_default=400;
@@ -127,6 +127,12 @@ window.addEventListener('load', () => {
     document.getElementById('RefCon').addEventListener('change', (evt) => {
         // Changing the reflection condition no longer resets the sample rotation.
         set_ReflectionCondition();
+        draw_maps();
+    });
+
+    document.getElementById('colorSet').addEventListener('change', (evt) => {
+        // Previously had no listener at all; the color scheme only changed on
+        // the next unrelated redraw. Now it updates both views immediately.
         draw_maps();
     });
 
@@ -523,6 +529,29 @@ function apply_Projection_DisplaySize(){
     document.getElementById('proj_display_scale_disp').innerHTML = document.getElementById('proj_display_scale').value+"%";
 }
 
+function apply_ColorSet(){
+    // Sets the shared fundamental_color / DetMapBGColor / gridcolor variables
+    // used by both the diffraction (detector) map and the projection view,
+    // so a color-scheme change is reflected in both.
+    switch(document.getElementById('colorSet').value){
+        case 'colorSet1':
+            fundamental_color=fundamental_color1;
+            DetMapBGColor=DetMapBGColor1;
+            gridcolor=gridcolor1;
+            break;
+        case 'colorSet2':
+            fundamental_color=fundamental_color2;
+            DetMapBGColor=DetMapBGColor2;
+            gridcolor=gridcolor2;
+            break;
+        default:
+            fundamental_color=fundamental_color1;
+            DetMapBGColor=DetMapBGColor1;
+            gridcolor=gridcolor1;
+            break;
+    }
+}
+
 function draw_DetMap(){
 
     let canvas = document.getElementById('CanvasDetMap');
@@ -543,23 +572,7 @@ function draw_DetMap(){
     canvas.width=scaleX;
     canvas.height=scaleY;
 
-    switch(document.getElementById('colorSet').value){
-        case 'colorSet1':
-            fundamental_color=fundamental_color1;
-            DetMapBGColor=DetMapBGColor1;
-            gridcolor=gridcolor1;
-            break;
-        case 'colorSet2':
-            fundamental_color=fundamental_color2;
-            DetMapBGColor=DetMapBGColor2;
-            gridcolor=gridcolor2;
-            break;
-        default:
-            fundamental_color=fundamental_color1;
-            DetMapBGColor=DetMapBGColor1;
-            gridcolor=gridcolor1;
-            break;
-    }
+    apply_ColorSet();
 
     let context = canvas.getContext('2d');
 
@@ -753,6 +766,8 @@ function draw_Projection(){
     const cy = projSize/2.0;
     const Req = projSize/2.0*projMargin;   // equator ( chi = 90 deg. )
 
+    apply_ColorSet();
+
     ctx.clearRect(0,0,projSize,projSize);
     ctx.fillStyle = "rgb(255,255,255)";
     ctx.fillRect(0,0,projSize,projSize);
@@ -836,7 +851,7 @@ function draw_Projection(){
     projPoles = Array.from(poleMap.values());
 
     // draw poles
-    ctx.fillStyle = fundamental_color1;
+    ctx.fillStyle = fundamental_color;
     for(const p of projPoles){
         ctx.beginPath();
         ctx.arc(p.x, p.y, poleRadius, 0, 2*Math.PI);
@@ -868,14 +883,14 @@ function draw_Projection(){
             const sy = cy - pz*Req;
             const chi = Math.acos(Math.min(1.0,Math.max(-1.0,-n[0])))*180.0/Math.PI;
             const phi = Math.atan2(n[2], n[1])*180.0/Math.PI;
-            ctx.strokeStyle = gridcolor1;
+            ctx.strokeStyle = gridcolor;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(sx, sy, poleRadius_tgt, 0, 2*Math.PI);
             ctx.stroke();
-            ctx.fillStyle = gridcolor1;
+            ctx.fillStyle = gridcolor;
             ctx.fillText(String(Ht)+String(Kt)+String(Lt), sx+6, sy+12);
-            ctx.fillStyle = fundamental_color1;
+            ctx.fillStyle = fundamental_color;
             ctx.lineWidth = 1;
             tgtInfo = "Target pole ("+String(Ht)+", "+String(Kt)+", "+String(Lt)+"): "
                      +"\u03C7 = "+chi.toFixed(2)+"\u00B0 from the beam axis, "
